@@ -469,6 +469,17 @@ def find_cc_ancestor_pid() -> int:
             exe = os.path.basename(cmd[0]).lower()
             if exe == "claude" or exe.startswith("claude-"):
                 return pid
+            # Background sessions launch the Claude binary by its versioned
+            # path (e.g. ~/.local/share/claude/versions/2.1.146), whose
+            # basename is a version number, not "claude". Without recognizing
+            # it, the walk skips the per-session process and resolves to the
+            # shared supervisor (claude daemon run), so distinct background
+            # sessions collide on one ppid lock and client/helper self-detection
+            # mismatches. Match the versioned path so each bg session keys on
+            # its own process; intra-session dedup is preserved.
+            full = cmd[0].lower()
+            if "/claude/versions/" in full or "/.local/share/claude/" in full:
+                return pid
             if exe in ("node", "node.exe"):
                 joined = " ".join(cmd[1:]).lower()
                 if (
