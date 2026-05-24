@@ -294,6 +294,85 @@ class TestFindCcAncestorPid:
         assert result == -1 or result > 0
 
 
+class TestFindCcAncestorPidMatching:
+    """Verify which ancestor pid the walk stops at for different launcher
+    layouts. Uses a fake process tree via monkeypatched psutil so the test
+    is isolated from the host machine's real ancestry."""
+
+    @staticmethod
+    def _fake_process_cls(tree):
+        """Return a fake `psutil.Process` bound to `tree` (pid → {cmdline, ppid})."""
+        import psutil
+
+        class _FakeProcess:
+            def __init__(self, pid):
+                self.pid = pid
+                if pid not in tree:
+                    raise psutil.NoSuchProcess(pid)
+                self._info = tree[pid]
+
+            def cmdline(self):
+                return list(self._info["cmdline"])
+
+            def ppid(self):
+                return self._info["ppid"]
+
+        return _FakeProcess
+
+    def test_foreground_symlinked_claude_still_matches(self, monkeypatch):
+        """argv[0]='claude' (the ~/.local/bin/claude symlink path) continues
+        to match. Guards against the bg-versioned-path patch accidentally
+        regressing the common foreground case."""
+        import psutil
+        tree = {100: {"cmdline": ["claude", "--effort", "max"], "ppid": 1}}
+        monkeypatch.setattr(os, "getppid", lambda: 100)
+        monkeypatch.setattr(psutil, "Process", self._fake_process_cls(tree))
+        assert shared.find_cc_ancestor_pid() == 100
+
+    def test_background_versioned_path_returns_per_session_pid(self, monkeypatch):
+        """Regression: in CC's background mode (Agent View / `claude --bg`)
+        the per-session spare is launched by its resolved versioned path
+        (e.g. ~/.local/share/claude/versions/2.1.146 --bg-spare), whose
+        basename is a version number, not `claude`. The walk must recognize
+        the versioned path and stop at the per-session pid (100) instead of
+        continuing up to the shared supervisor (50), which would collide
+        across distinct bg sessions on the ppid flock."""
+        import psutil
+        tree = {
+            100: {"cmdline": ["/Users/x/.local/share/claude/versions/2.1.146",
+                              "--bg-spare"], "ppid": 50},
+            50:  {"cmdline": ["claude", "daemon", "run"], "ppid": 1},
+        }
+        monkeypatch.setattr(os, "getppid", lambda: 100)
+        monkeypatch.setattr(psutil, "Process", self._fake_process_cls(tree))
+        assert shared.find_cc_ancestor_pid() == 100
+
+    def test_distinct_bg_sessions_resolve_to_distinct_pids(self, monkeypatch):
+        """The core invariant: two background sessions share a supervisor
+        ancestor but each has its own bg-spare. They must resolve to
+        DIFFERENT pids so they don't collide on the ppid dedup flock —
+        otherwise the second `/inter-session connect` exits with `another
+        monitor for this session is already running`."""
+        import psutil
+        tree = {
+            100: {"cmdline": ["/Users/x/.local/share/claude/versions/2.1.146",
+                              "--bg-spare", "A"], "ppid": 50},
+            200: {"cmdline": ["/Users/x/.local/share/claude/versions/2.1.146",
+                              "--bg-spare", "B"], "ppid": 50},
+            50:  {"cmdline": ["claude", "daemon", "run"], "ppid": 1},
+        }
+        monkeypatch.setattr(psutil, "Process", self._fake_process_cls(tree))
+
+        monkeypatch.setattr(os, "getppid", lambda: 100)
+        a = shared.find_cc_ancestor_pid()
+        monkeypatch.setattr(os, "getppid", lambda: 200)
+        b = shared.find_cc_ancestor_pid()
+
+        assert a == 100
+        assert b == 200
+        assert a != b
+
+
 class TestAutoNameFromCwd:
     def test_simple_basename(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
