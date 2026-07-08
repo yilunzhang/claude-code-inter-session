@@ -377,6 +377,40 @@ def _env_float(*keys, default: float) -> float:
     return default
 
 
+
+def _in_agent_context() -> bool:
+    """True when an ancestor process is a Claude Code agent/teammate — a
+    claude binary (argv[0] "claude" or the versioned install path
+    .../claude/versions/<v>) carrying --agent-id / --parent-session-id as
+    exact argv tokens. A shell ancestor merely QUOTING that flag text must not
+    match. Fail-open: any error (psutil missing, ancestry unreadable)
+    returns False so the normal connect path is never blocked by the guard.
+    """
+    try:
+        import psutil
+        p = psutil.Process().parent()
+        depth = 0
+        while p is not None and depth < 15:
+            try:
+                cmd = p.cmdline() or []
+            except Exception:
+                cmd = []  # e.g. AccessDenied on system procs — keep walking
+            looks_like_claude = cmd and (
+                os.path.basename(cmd[0]).startswith("claude")
+                or "/claude/versions/" in cmd[0]
+            )
+            if looks_like_claude:
+                flags = ("--agent-id", "--parent-session-id")
+                if any(a == f or a.startswith(f + "=")
+                       for a in cmd[1:] for f in flags):
+                    return True
+            p = p.parent()
+            depth += 1
+    except Exception:
+        pass
+    return False
+
+
 def main() -> int:
     # Resolution order for port / idle-shutdown:
     #   1. CLI arg (explicit override)
@@ -407,6 +441,19 @@ def main() -> int:
     if not shared.validate_label(args.label):
         _print_line(f"[inter-session] invalid label {args.label!r}")
         return 1
+
+    # Plugin auto-start (monitors.json, no --name) also fires inside
+    # agent-team teammate / subagent Claude Code processes: each worker then
+    # joins the bus with a cwd-derived name (roster pollution), and a
+    # broadcast reaches mid-task workers as an instruction. Skip the
+    # auto-start path in agent contexts; an explicit --name still connects
+    # an agent deliberately.
+    if not args.name and _in_agent_context():
+        _print_line(
+            "[inter-session] agent/teammate context detected; skipping "
+            "auto-connect -- pass --name to connect an agent deliberately"
+        )
+        return 0
 
     # Plugin auto-start path: monitors.json doesn't pass --name (so the user
     # doesn't have to set INTER_SESSION_NAME). Fall back to a name derived from
