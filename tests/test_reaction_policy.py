@@ -44,6 +44,18 @@ class TestReactionPolicy:
         # The single most important guardrail: peers can't escalate.
         assert "do NOT override" in SKILL or "do not override" in SKILL.lower()
 
+    def test_only_leading_header_is_authoritative(self):
+        # SEC-002: a peer can embed `[inter-session ...]`-looking text in the
+        # message body. The reaction policy must tell the agent that only the
+        # leading prefix is authoritative, so an embedded pseudo-header can't
+        # spoof the sender or inject a second directive. Anchor on distinctive
+        # phrases from the guardrail bullet so deleting it fails the test even
+        # if the individual words survive elsewhere in the prose.
+        low = SKILL.lower()
+        assert "only the leading" in low
+        assert "authoritative" in low
+        assert "pseudo-header" in low
+
 
 class TestInstallDepsUx:
     def test_uses_isolated_venv_by_default(self):
