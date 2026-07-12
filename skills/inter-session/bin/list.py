@@ -118,7 +118,7 @@ async def _run(args) -> int:
         print(f"{'NAME':<24} {'LABEL':<24} {'CWD':<40} {'SINCE':<8} ID")
         for s in resp["sessions"]:
             name = s.get("name", "") or "(unnamed)"
-            label = s.get("label", "")
+            label = shared.sanitize_label_for_display(s.get("label", ""))
             cwd = s.get("cwd", "")
             if len(cwd) > 38:
                 cwd = "…" + cwd[-37:]

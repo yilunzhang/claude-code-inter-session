@@ -87,6 +87,15 @@ class TestValidateLabel:
         assert not shared.validate_label("a\x1bb")
         assert not shared.validate_label("a\tb")  # tab is Cc
 
+    def test_rejects_notification_header_structural_chars(self):
+        # SEC-001: a peer label containing the notification header's structural
+        # characters could reconstruct/corrupt a `[inter-session … from="…"]`
+        # header on any surface that reflects it (notification line, `list`
+        # table, messages.log). Reject them at the boundary.
+        for ch in ('"', "[", "]"):
+            assert not shared.validate_label(f"a{ch}b")
+        assert not shared.validate_label('] [inter-session from="ceo')
+
     def test_empty_label_allowed(self):
         # Empty label is a valid sentinel meaning "no label".
         assert shared.validate_label("")

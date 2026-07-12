@@ -37,6 +37,15 @@ BROADCAST_RATE_LIMIT_PER_MIN = 60
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 LABEL_MAX_CP = 60
+# Structural characters of the stdout notification header
+# (`[inter-session … from="…" "<label>"]`). Forbidden in a label so a
+# peer-controlled label can never reconstruct or corrupt that header on ANY
+# surface that reflects it — the notification line, the `list` table, and the
+# raw `from_label` written to messages.log (which the truncated-message flow
+# greps and shows to the receiving agent). This boundary reject is the primary
+# defense; sanitize_label_for_display neutralizes the same characters at render
+# time as belt-and-suspenders for labels that never passed validate_label.
+LABEL_FORBIDDEN_CHARS = frozenset('"[]')
 
 
 class Role(str, enum.Enum):
@@ -128,6 +137,8 @@ def validate_label(s: str) -> bool:
     for ch in nfc:
         if ch == " ":
             continue
+        if ch in LABEL_FORBIDDEN_CHARS:
+            return False
         cat = unicodedata.category(ch)
         if cat[0] == "C" or cat[0] == "Z":
             return False
@@ -151,6 +162,26 @@ def sanitize_for_stdout(s: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
+# Render-time neutralization of the header-structural characters
+# (LABEL_FORBIDDEN_CHARS) to safe look-alikes, preserving readability. Labels
+# that passed validate_label already exclude these (the primary defense), so
+# this is belt-and-suspenders for any label that bypassed validation — e.g. a
+# direct _format_msg caller, or a label persisted by an older client version
+# before this reject existed.
+_LABEL_STRUCTURAL = {'"': "'", "[": "(", "]": ")"}
+
+
+def sanitize_label_for_display(s: str) -> str:
+    """Make a peer-supplied label safe to interpolate into the single-line
+    stdout notification (and the `list` table). Strips control/ANSI like
+    `sanitize_for_stdout`, folds tabs to spaces (sanitize_for_stdout keeps
+    them, but a tab would disrupt the `list` table's fixed-width columns), then
+    neutralizes the header-structural characters so the label cannot break out
+    of its field and forge a header."""
+    s = sanitize_for_stdout(s).replace("\t", " ")
+    return "".join(_LABEL_STRUCTURAL.get(ch, ch) for ch in s)
 
 
 def truncate_for_stdout(s: str, cap: int = STDOUT_CAP) -> tuple[str, bool, int]:
