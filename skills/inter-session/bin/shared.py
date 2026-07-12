@@ -99,6 +99,14 @@ def pidfile_meta_path(port: int = DEFAULT_PORT, host: str | None = None) -> Path
     return data_dir() / f"{_identity_stem(port, host)}.pid.meta"
 
 
+def election_lock_path(port: int = DEFAULT_PORT, host: str | None = None) -> Path:
+    """Per-endpoint advisory-lock file that serializes the server election, so
+    two clients racing to start a server can't both bind() the port (which
+    SO_REUSEADDR would otherwise allow before either socket listens) and spawn
+    duplicate servers that clobber each other's identity."""
+    return data_dir() / f"{_identity_stem(port, host)}.election.lock"
+
+
 def clients_dir() -> Path:
     return data_dir() / "clients"
 

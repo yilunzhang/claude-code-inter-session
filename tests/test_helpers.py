@@ -212,6 +212,40 @@ class TestListHelper:
 
 
 @pytest.mark.slow
+class TestElection:
+    def test_concurrent_ensure_spawns_single_server(self, tmp_data_dir, free_port):
+        """Race regression: many peers calling ensure_server_running at once
+        must spawn exactly ONE server (not several that clobber each other's
+        identity). Before the election lock, SO_REUSEADDR let two bind() the
+        port before either listened, so both spawned and identity got wiped."""
+        import threading
+        from bin import spawn
+
+        n = 6
+        results = []
+        barrier = threading.Barrier(n)
+
+        def worker():
+            barrier.wait()  # release all threads together to maximize the race
+            results.append(spawn.ensure_server_running(
+                port=free_port, idle_shutdown_minutes=1))
+
+        threads = [threading.Thread(target=worker) for _ in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        try:
+            assert all(results), f"not all callers saw a server up: {results}"
+            pidfiles = list(tmp_data_dir.glob("server.*.pid"))
+            assert len(pidfiles) == 1, f"expected exactly one server, got {pidfiles}"
+            # And it's a real, identity-verified server (not a wiped pidfile).
+            assert shared.verify_server_identity(port=free_port)
+        finally:
+            _kill_server()
+
+
+@pytest.mark.slow
 class TestStaleStateCleanup:
     """Regression: helpers used to surface raw `hello error: unknown_peer`
     when the listener referenced by the state file was dead. Now they
