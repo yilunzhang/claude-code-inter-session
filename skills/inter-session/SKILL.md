@@ -161,6 +161,13 @@ Works the same whether the skill is installed as part of the plugin
    so leave them off. Use plain `python3` — `client.py` re-execs under
    the project venv automatically once `install-deps` has created it.
 
+   **Optional `--label`**: to give the session a human-friendly display
+   string (shown in `list`; addressing still uses `name`), add
+   `--label "<text>"` to the command. A label set this way **persists per
+   project** — it's remembered (keyed by the git repo root) and reused on
+   the next connect without re-passing it, so only pass `--label` when the
+   user asks to set or change it. `--label ""` clears the persisted label.
+
    Each stdout line is a peer message — apply the Reaction policy above.
 
 3. **If the spawn returns

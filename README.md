@@ -247,6 +247,23 @@ collaboration.
 | `/inter-session:inter-session disconnect`                      | Stop the monitor.                                              |
 | `/inter-session:inter-session auto-start [on\|off\|status]`    | Toggle auto-start. `on` = start at every session; `off` = lazy (default). Apply with `/reload-plugins`. |
 
+## Session labels
+
+Alongside its `name` (the ASCII handle used for addressing), a session can
+carry an optional **label** — a short Unicode display string (up to 60
+characters, e.g. `Payments 🐛 refund bug`) shown in the `list` table. Labels
+are display-only; you always address a session by its `name`.
+
+Set one when the monitor starts with the client's `--label` flag. A label set
+this way is **remembered per project** — persisted in the data dir, keyed by
+the git repo root (falling back to the working directory outside a repo) — so
+it is reused automatically on the next restart without re-passing the flag:
+
+- `--label "…"` — set and persist for this project.
+- `--label ""` — clear the persisted label.
+- `INTER_SESSION_LABEL` — a one-off runtime override; used but **not**
+  persisted.
+
 ## Plugin configuration
 
 The WebSocket port and idle-shutdown timeout are configurable via

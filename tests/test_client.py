@@ -66,6 +66,57 @@ def _read_until_nonempty(proc, timeout=5.0):
     return ""
 
 
+class TestResolveLabel:
+    """client._resolve_label: --label vs $INTER_SESSION_LABEL vs persisted."""
+
+    def test_flag_persists_and_is_used(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        assert client_mod._resolve_label("Payments 🐛", None, cwd) == "Payments 🐛"
+        assert client_mod.profile.load_label(cwd) == "Payments 🐛"  # persisted
+
+    def test_flag_empty_clears(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        client_mod._resolve_label("old", None, cwd)
+        assert client_mod._resolve_label("", None, cwd) == ""
+        assert client_mod.profile.load_label(cwd) == ""
+
+    def test_env_used_but_not_persisted(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        assert client_mod._resolve_label(None, "env-label", cwd) == "env-label"
+        assert client_mod.profile.load_label(cwd) == ""  # NOT persisted
+
+    def test_flag_takes_precedence_over_env(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        assert client_mod._resolve_label("flag", "env", cwd) == "flag"
+
+    def test_absent_loads_persisted(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        client_mod.profile.save_label("stored", cwd)
+        assert client_mod._resolve_label(None, None, cwd) == "stored"
+
+    def test_empty_env_falls_back_to_persisted(self, tmp_data_dir, tmp_path):
+        cwd = str(tmp_path)
+        client_mod.profile.save_label("stored", cwd)
+        assert client_mod._resolve_label(None, "", cwd) == "stored"
+
+    def test_absent_with_nothing_is_empty(self, tmp_data_dir, tmp_path):
+        assert client_mod._resolve_label(None, None, str(tmp_path)) == ""
+
+    def test_invalid_flag_raises(self, tmp_data_dir, tmp_path):
+        with pytest.raises(ValueError):
+            client_mod._resolve_label("a\nb", None, str(tmp_path))
+        # and nothing was persisted
+        assert client_mod.profile.load_label(str(tmp_path)) == ""
+
+    def test_invalid_env_raises(self, tmp_data_dir, tmp_path):
+        with pytest.raises(ValueError):
+            client_mod._resolve_label(None, "a\nb", str(tmp_path))
+
+    def test_over_max_length_flag_raises(self, tmp_data_dir, tmp_path):
+        with pytest.raises(ValueError):
+            client_mod._resolve_label("a" * (shared.LABEL_MAX_CP + 1), None, str(tmp_path))
+
+
 class TestFormatMsg:
     def test_basic_msg(self):
         msg = {"op": "msg", "msg_id": "ab12", "from": "x", "from_name": "alpha",
