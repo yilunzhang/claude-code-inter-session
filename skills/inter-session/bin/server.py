@@ -401,6 +401,8 @@ class Server:
                 await self._handle_broadcast(state, payload)
             elif op == "rename":
                 await self._handle_rename(state, payload)
+            elif op == "relabel":
+                await self._handle_relabel(state, payload)
             elif op == "bye":
                 return
             elif op == "hello":
@@ -667,6 +669,41 @@ class Server:
         await state.ws.send(json.dumps({"op": "renamed", "name": new_name}))
         await self._broadcast_event(
             {"op": "renamed", "session_id": target_sid, "name": new_name},
+            exclude=target_sid,
+        )
+
+    async def _handle_relabel(self, state: ClientState, payload) -> None:
+        """In-place display-label update — no reconnect, same session_id.
+        Mirrors _handle_rename: for a control connection the target is the
+        registered listener (`_for_session`), not the ephemeral control."""
+        new_label = payload.get("label", "")
+        if not isinstance(new_label, str):
+            await self._send_error(state.ws, shared.ErrorCode.INVALID_PAYLOAD,
+                                   "label must be a string")
+            return
+        if not shared.validate_label(new_label):
+            await self._send_error(state.ws, shared.ErrorCode.INVALID_LABEL, "invalid label")
+            return
+        target_sid = self._from_id_for(state)
+        reject: Optional[tuple[str, str]] = None
+        target_name = ""
+        async with self._registry_lock:
+            target = self._registry.get(target_sid)
+            if target is None or target.role != shared.Role.AGENT:
+                reject = (shared.ErrorCode.UNKNOWN_PEER, "no listener to relabel")
+            else:
+                target.label = new_label
+                target_name = target.name
+                if state is not target:
+                    state.label = new_label
+        if reject is not None:
+            code, message = reject
+            await self._send_error(state.ws, code, message)
+            return
+        await state.ws.send(json.dumps({"op": "relabeled", "label": new_label}))
+        await self._broadcast_event(
+            {"op": "relabeled", "session_id": target_sid,
+             "name": target_name, "label": new_label},
             exclude=target_sid,
         )
 

@@ -183,6 +183,31 @@ class TestAtomicToken:
             shared.ensure_token(link)
 
 
+class TestAtomicWriteText:
+    def test_writes_content(self, tmp_path):
+        p = tmp_path / "f.json"
+        shared.atomic_write_text(p, '{"a": 1}')
+        assert p.read_text() == '{"a": 1}'
+
+    def test_mode_0600_by_default(self, tmp_path):
+        p = tmp_path / "f"
+        shared.atomic_write_text(p, "x")
+        assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
+
+    def test_overwrites_atomically(self, tmp_path):
+        p = tmp_path / "f"
+        shared.atomic_write_text(p, "first")
+        shared.atomic_write_text(p, "second")
+        assert p.read_text() == "second"
+        # No tempfiles left behind.
+        assert [x.name for x in tmp_path.iterdir()] == ["f"]
+
+    def test_custom_mode(self, tmp_path):
+        p = tmp_path / "f"
+        shared.atomic_write_text(p, "x", mode=0o644)
+        assert stat.S_IMODE(os.stat(p).st_mode) == 0o644
+
+
 class TestSecureDir:
     def test_creates_with_0700(self, tmp_path):
         d = tmp_path / "data"

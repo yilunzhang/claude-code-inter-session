@@ -212,6 +212,39 @@ class TestListHelper:
 
 
 @pytest.mark.slow
+class TestRelabelHelper:
+    def test_relabel_updates_live_and_persists(self, tmp_data_dir, free_port):
+        # Single listener → no two-server election race.
+        ppid = 20061
+        listener = _spawn_listener(free_port, "relabelme", tmp_data_dir, ppid)
+        try:
+            _wait_for_state(tmp_data_dir, ppid)
+            time.sleep(0.3)
+            r = _run_helper("relabel.py", tmp_data_dir, ppid, "--label", "the controller")
+            assert r.returncode == 0, f"stderr={r.stderr!r}"
+            assert "relabeled" in r.stdout
+            # Live: list now shows the new label on the same (un-reconnected) session.
+            r2 = _run_helper("list.py", tmp_data_dir, ppid)
+            assert r2.returncode == 0, f"stderr={r2.stderr!r}"
+            assert "the controller" in r2.stdout
+            # Persisted: relabel wrote a profile so the label survives restart.
+            profiles = tmp_data_dir / "profiles"
+            assert profiles.is_dir() and any(profiles.iterdir())
+        finally:
+            listener.terminate()
+            try:
+                listener.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                listener.kill()
+            _kill_server()
+
+    def test_relabel_no_listener_fails(self, tmp_data_dir, free_port):
+        r = _run_helper("relabel.py", tmp_data_dir, 99998, "--label", "x")
+        assert r.returncode == 1
+        assert "not connected" in r.stderr
+
+
+@pytest.mark.slow
 class TestStaleStateCleanup:
     """Regression: helpers used to surface raw `hello error: unknown_peer`
     when the listener referenced by the state file was dead. Now they

@@ -21,7 +21,7 @@ class TestFrontmatter:
 class TestSubcommands:
     def test_dispatch_table_has_all_subcommands(self):
         for sub in ("connect", "install-deps", "list", "send", "broadcast",
-                    "rename", "status", "disconnect"):
+                    "rename", "relabel", "status", "disconnect"):
             assert f"`/inter-session {sub}" in SKILL or f"`/inter-session [args]" in SKILL
 
 

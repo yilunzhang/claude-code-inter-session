@@ -500,6 +500,108 @@ class TestRename:
             await ws.close()
 
 
+class TestRelabel:
+    async def test_valid_relabel_updates_and_broadcasts(self, running_server):
+        srv, port, token = running_server
+        ws_a = await _connect(port)
+        ws_b = await _connect(port)
+        try:
+            sid_a, _ = await _hello(ws_a, token, name="alpha", label="old")
+            await _hello(ws_b, token, name="beta")
+            await _send_op(ws_a, "relabel", label="the controller")
+            ack = await _recv_until(ws_a, "relabeled")
+            assert ack["label"] == "the controller"
+            # Peer sees the live event referencing the SAME session_id (no reconnect).
+            event = await _recv_until(ws_b, "relabeled")
+            assert event["session_id"] == sid_a
+            assert event["name"] == "alpha"
+            assert event["label"] == "the controller"
+            # list reflects the new label.
+            await _send_op(ws_b, "list")
+            resp = await _recv_until(ws_b, "list_ok")
+            alpha = next(s for s in resp["sessions"] if s["session_id"] == sid_a)
+            assert alpha["label"] == "the controller"
+        finally:
+            await ws_a.close()
+            await ws_b.close()
+
+    async def test_relabel_empty_clears(self, running_server):
+        srv, port, token = running_server
+        ws = await _connect(port)
+        try:
+            sid, _ = await _hello(ws, token, name="alpha", label="old")
+            await _send_op(ws, "relabel", label="")
+            ack = await _recv_until(ws, "relabeled")
+            assert ack["label"] == ""
+            await _send_op(ws, "list")
+            resp = await _recv_until(ws, "list_ok")
+            me = next(s for s in resp["sessions"] if s["session_id"] == sid)
+            assert me["label"] == ""
+        finally:
+            await ws.close()
+
+    async def test_invalid_label_rejected(self, running_server):
+        srv, port, token = running_server
+        ws = await _connect(port)
+        try:
+            await _hello(ws, token, name="alpha")
+            await _send_op(ws, "relabel", label="a\nb")  # newline is invalid
+            err = await _recv(ws)
+            assert err["op"] == "error"
+            assert err["code"] == shared.ErrorCode.INVALID_LABEL
+        finally:
+            await ws.close()
+
+    async def test_relabel_non_string(self, running_server):
+        srv, port, token = running_server
+        ws = await _connect(port)
+        try:
+            await _hello(ws, token, name="alpha")
+            await _send_op(ws, "relabel", label=42)
+            err = await _recv(ws)
+            assert err["op"] == "error"
+            assert err["code"] == shared.ErrorCode.INVALID_PAYLOAD
+        finally:
+            await ws.close()
+
+    async def test_control_relabel_mutates_listener(self, running_server):
+        srv, port, token = running_server
+        sid = str(uuid.uuid4())
+        nonce = "ctl-relabel-nonce"
+        ws_listener = await _connect(port)
+        await _send_op(
+            ws_listener, "hello", session_id=sid, name="alpha", label="",
+            cwd="/tmp", pid=1, role="agent", nonce=nonce, token=token,
+        )
+        await _recv(ws_listener)
+        ws_ctrl = await _connect(port)
+        await _send_op(
+            ws_ctrl, "hello", session_id=str(uuid.uuid4()), name="", label="",
+            cwd="/tmp", pid=2, role="control", for_session=sid, nonce=nonce, token=token,
+        )
+        await _recv(ws_ctrl)  # welcome
+        ws_watcher = await _connect(port)
+        await _hello(ws_watcher, token, name="watcher")
+        try:
+            for _ in range(2):
+                try:
+                    await _recv(ws_watcher, timeout=0.3)
+                except asyncio.TimeoutError:
+                    break
+            # Control relabels — must mutate the LISTENER, not the control conn.
+            await _send_op(ws_ctrl, "relabel", label="ctl-label")
+            ack = await _recv_until(ws_ctrl, "relabeled")
+            assert ack["label"] == "ctl-label"
+            event = await _recv_until(ws_watcher, "relabeled")
+            assert event["session_id"] == sid
+            assert event["name"] == "alpha"
+            assert event["label"] == "ctl-label"
+        finally:
+            await ws_listener.close()
+            await ws_ctrl.close()
+            await ws_watcher.close()
+
+
 class TestReconnect:
     async def test_same_session_id_replaces(self, running_server):
         srv, port, token = running_server

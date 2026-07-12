@@ -115,6 +115,7 @@ When the user invokes `/inter-session [args]`, parse `args` to dispatch:
 | `/inter-session send <name-or-prefix> <text>` | Send to one peer.                                                 |
 | `/inter-session broadcast <text>`             | Send to all other peers (≤ 256 KB).                               |
 | `/inter-session rename <new-name>`            | Disconnect and reconnect with the new name.                       |
+| `/inter-session relabel <text>`               | Change this session's label in place (no reconnect). `""` clears.  |
 | `/inter-session status`                       | Show this session's connection state.                             |
 | `/inter-session disconnect`                   | TaskStop the running monitor.                                     |
 | `/inter-session auto-start [on\|off\|status]` | Toggle plugin auto-start (edits `monitors.json` `when` field).    |
@@ -160,6 +161,13 @@ Works the same whether the skill is installed as part of the plugin
    Passing them as CLI args silently nullifies the user's plugin config,
    so leave them off. Use plain `python3` — `client.py` re-execs under
    the project venv automatically once `install-deps` has created it.
+
+   **Optional `--label`**: to give the session a human-friendly display
+   string (shown in `list`; addressing still uses `name`), add
+   `--label "<text>"` to the command. A label set this way **persists per
+   project** — it's remembered (keyed by the git repo root) and reused on
+   the next connect without re-passing it, so only pass `--label` when the
+   user asks to set or change it. `--label ""` clears the persisted label.
 
    Each stdout line is a peer message — apply the Reaction policy above.
 
@@ -258,6 +266,20 @@ Monitor(command="python3 <bin>/client.py --name <new-name>", ...)
 ```
 
 Find the monitor-task-id via `TaskList()`.
+
+## relabel — change the label in place (no reconnect)
+
+Unlike `rename`, changing the label does **not** require a reconnect — the
+session keeps its `session_id` and stays on the bus. Run:
+
+```
+Bash("python3 <bin>/relabel.py --label '<text>'")
+```
+
+`relabel.py` updates the label live on the server (peers see it in `list`
+immediately) and persists it per-project so it also survives the next
+restart. Use `--label ''` to clear the label. Quote `<text>` the same way as
+`send` (single-quote it; escape inner single quotes via `'\''`).
 
 ## status
 

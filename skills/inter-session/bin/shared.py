@@ -232,6 +232,33 @@ def rotate_log_if_needed(path: Path, max_bytes: int, backups: int) -> None:
             pass
 
 
+def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
+    """Atomically write `text` to `path` with `mode` perms: write a sibling
+    tempfile (fchmod + fsync), then os.replace so readers never observe a
+    partial file. The parent directory must already exist (callers create it
+    with the right perms via secure_dir)."""
+    import tempfile
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp",
+                               dir=str(path.parent))
+    try:
+        os.fchmod(fd, mode)
+        os.write(fd, text.encode("utf-8"))
+        os.fsync(fd)
+        os.close(fd)
+        os.replace(tmp, str(path))
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def safe_pid_alive(pid: int) -> bool:
     """True if a process with `pid` is alive (or we can signal 0 to it)."""
     if pid <= 0:

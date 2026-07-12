@@ -181,13 +181,36 @@ blue → "tracked in PATCH_LOG.md (24 entries). all classes hardened.
 | :---------------------------------------------------------- | :-------------------------------------------------------------------------------------------------- |
 | `/inter-session:inter-session`                              | 连接(等同于 `connect`)。                                                                          |
 | `/inter-session:inter-session connect [name]`               | 连接到总线；省略 `name` 时由 Claude 根据上下文提议。                                                |
+| `/inter-session:inter-session install-deps`                 | 将运行时依赖(websockets、psutil)安装到隔离的 venv。                                               |
 | `/inter-session:inter-session list`                         | 列出已连接的会话。                                                                                  |
 | `/inter-session:inter-session send <name> <text>`           | 向某一个会话发送消息。                                                                              |
 | `/inter-session:inter-session broadcast <text>`             | 向所有其他会话广播(≤ 256 KB)。                                                                    |
 | `/inter-session:inter-session rename <new-name>`            | 改名 —— 实现为断开 + 重连。                                                                         |
+| `/inter-session:inter-session relabel <text>`               | 原地修改本会话的 label(无需重连);`""` 清除。按项目持久化。                                        |
 | `/inter-session:inter-session status`                       | 启发式连接状态。                                                                                    |
 | `/inter-session:inter-session disconnect`                   | 停止 monitor。                                                                                      |
 | `/inter-session:inter-session auto-start [on\|off\|status]` | 切换 auto-start。`on` = 每次会话启动时连接；`off` = 懒启动(默认)。改动后用 `/reload-plugins` 应用。 |
+
+## 会话标签(label)
+
+除了用于寻址的 `name`(ASCII 句柄)之外,会话还可以带一个可选的 **label** ——
+一个简短的 Unicode 显示字符串(最多 60 个字符,例如 `Payments 🐛 refund bug`),
+显示在 `list` 表格中。label 仅用于显示;寻址始终使用 `name`。
+
+在 monitor 启动时通过客户端的 `--label` 参数设置。以这种方式设置的 label 会
+**按项目记住** —— 持久化到数据目录,以 git 仓库根目录为键(不在仓库中时回退到
+当前工作目录)—— 因此下次重启会自动复用,无需再次传入该参数:
+
+- `--label "…"` —— 为当前项目设置并持久化。
+- `--label ""` —— 清除已持久化的 label。
+- `INTER_SESSION_LABEL` —— 一次性的运行时覆盖;会被使用但**不会**持久化。
+
+若要在**不重连**的情况下修改一个已连接会话的 label(保持相同的 `session_id`),
+使用 `relabel` —— 它会为所有对端实时更新 label,并同时持久化:
+
+```
+/inter-session relabel "the controller"     # "" 清除
+```
 
 ## 插件配置
 
